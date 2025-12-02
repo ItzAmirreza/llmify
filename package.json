@@ -7,6 +7,11 @@
   "author": {
     "name": "Amirreza Badpa"
   },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ItzAmirreza/llmify.git"
+  },
   "engines": {
     "vscode": "^1.74.0"
   },

@@ -594,17 +594,33 @@ export function showTreePicker(
 
     panel.webview.html = getWebviewContent(panel.webview, tree);
 
+    let resolved = false;
+    const resolveOnce = (paths?: string[]) => {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      resolve(paths);
+    };
+
     panel.webview.onDidReceiveMessage(
       (message) => {
         switch (message.type) {
           case "cancel":
+            resolveOnce(undefined);
             panel.dispose();
-            resolve(undefined);
             break;
-          case "export":
+          case "export": {
+            const paths = Array.isArray(message.paths)
+              ? (message.paths as unknown[]).filter(
+                  (p: unknown): p is string =>
+                    typeof p === "string" && p.length > 0
+                )
+              : [];
+            resolveOnce(paths);
             panel.dispose();
-            resolve(message.paths);
             break;
+          }
         }
       },
       undefined,
@@ -612,7 +628,7 @@ export function showTreePicker(
     );
 
     panel.onDidDispose(() => {
-      resolve(undefined);
+      resolveOnce(undefined);
     });
   });
 }

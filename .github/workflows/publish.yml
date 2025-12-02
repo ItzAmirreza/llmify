@@ -1,4 +1,4 @@
-name: Auto publish VS Code Extension
+name: Auto publish VS Code extension to both marketplaces
 
 on:
   push:
@@ -21,10 +21,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build
+      - name: Build extension
         run: npm run compile
 
-      - name: Auto-bump patch version in package.json (CI only)
+      # Auto-bump PATCH version so each publish is unique
+      - name: Auto-bump patch version in package.json
         run: |
           node - << 'EOF'
           const fs = require('fs');
@@ -40,10 +41,16 @@ jobs:
           console.log('Bumped version:', newVersion);
           EOF
 
-      - name: Install vsce
-        run: npm install -g vsce
+      - name: Install vsce and ovsx
+        run: |
+          npm install -g @vscode/vsce ovsx
 
-      - name: Publish to VS Code Marketplace
+      - name: Publish to VS Code Marketplace (publisher: AmirrezaBadpa)
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: vsce publish -p "$VSCE_PAT"
+
+      - name: Publish to Open VSX (publisher: ItzAmirreza)
+        env:
+          OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
+        run: ovsx publish -p "$OVSX_TOKEN" --publisher ItzAmirreza

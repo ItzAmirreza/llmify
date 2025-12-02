@@ -2,7 +2,7 @@
   "name": "llmify",
   "displayName": "Llmify",
   "description": "Convert selected folders and files to markdown for LLM consumption",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "AmirrezaBadpa",
   "icon": "icon.png",
   "author": {

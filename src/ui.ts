@@ -103,21 +103,19 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
     const isFolder = node.type === "folder";
     const icon = isFolder ? "folder" : "file";
     const expandIcon = isFolder
-      ? `<span class="expand-icon">▶</span>`
+      ? `<span class="expand-icon" aria-hidden="true">&#9656;</span>`
       : `<span class="expand-icon-placeholder"></span>`;
 
     let html = `
       <div class="tree-item ${isFolder ? "folder" : "file"}" data-path="${
       node.path
     }" data-type="${node.type}" style="padding-left: ${indent}px;">
-        <label class="tree-label">
-          <input type="checkbox" class="tree-checkbox" data-path="${
-            node.path
-          }" data-type="${node.type}">
+        <div class="tree-label">
+          <input type="checkbox" class="tree-checkbox" data-path="${node.path}" data-type="${node.type}">
           ${expandIcon}
           <span class="icon ${icon}"></span>
           <span class="name">${node.name}</span>
-        </label>
+        </div>
       </div>
     `;
 
@@ -410,37 +408,64 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
     const searchInput = document.getElementById('searchInput');
     const selectionInfo = document.getElementById('selectionInfo');
     const exportBtn = document.getElementById('exportBtn');
+
+    const treeItems = Array.from(document.querySelectorAll('.tree-item'));
+    const treeContainers = Array.from(
+      document.querySelectorAll('.tree-children')
+    );
     const checkboxes = Array.from(
       document.querySelectorAll('.tree-checkbox')
     );
-    const folderItems = Array.from(
-      document.querySelectorAll('.tree-item.folder')
+    const folderItems = treeItems.filter((item) =>
+      item.classList.contains('folder')
     );
+    const fileCheckboxes = checkboxes.filter(
+      (cb) => cb.dataset.type === 'file'
+    );
+
     const checkboxByPath = new Map();
+    const containerByParent = new Map();
+    const descendantCache = new Map();
+
     checkboxes.forEach((cb) => {
       if (cb.dataset.path) {
         checkboxByPath.set(cb.dataset.path, cb);
       }
     });
+    treeContainers.forEach((container) => {
+      const parentPath = container.dataset.parent;
+      if (parentPath) {
+        containerByParent.set(parentPath, container);
+      }
+    });
+
+    const searchIndex = treeItems.map((item) => ({
+      element: item,
+      pathLower: (item.dataset.path || '').toLowerCase(),
+    }));
 
     function updateSelectionInfo() {
-      const selectedFiles = document.querySelectorAll(
-        '.tree-checkbox[data-type="file"]:checked'
-      );
-      const fileCount = selectedFiles.length;
+      let fileCount = 0;
+      for (const cb of fileCheckboxes) {
+        if (cb.checked) {
+          fileCount++;
+        }
+      }
       selectionInfo.textContent =
         fileCount + ' file' + (fileCount === 1 ? '' : 's') + ' selected';
       exportBtn.disabled = fileCount === 0;
     }
 
     function findChildrenContainer(folderPath) {
-      const allContainers = Array.from(
-        document.querySelectorAll('.tree-children')
-      );
-      return allContainers.find((container) => container.dataset.parent === folderPath);
+      return containerByParent.get(folderPath);
     }
 
     function getDescendantCheckboxes(folderPath) {
+      const cached = descendantCache.get(folderPath);
+      if (cached) {
+        return cached;
+      }
+
       const result = [];
       const stack = [folderPath];
       while (stack.length > 0) {
@@ -453,15 +478,15 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
           container.querySelectorAll('.tree-checkbox')
         );
         result.push(...childCheckboxes);
-        const childFolderCheckboxes = Array.from(
-          container.querySelectorAll('.tree-checkbox[data-type="folder"]')
-        );
-        childFolderCheckboxes.forEach((childCb) => {
-          if (childCb.dataset.path) {
-            stack.push(childCb.dataset.path);
+
+        for (const cb of childCheckboxes) {
+          if (cb.dataset.type === 'folder' && cb.dataset.path) {
+            stack.push(cb.dataset.path);
           }
-        });
+        }
       }
+
+      descendantCache.set(folderPath, result);
       return result;
     }
 
@@ -474,11 +499,8 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
     }
 
     function findParentPath(checkbox) {
-      let el = checkbox.parentElement;
-      while (el && !el.classList.contains('tree-children')) {
-        el = el.parentElement;
-      }
-      return el?.dataset.parent;
+      const container = checkbox.closest('.tree-children');
+      return container?.dataset.parent;
     }
 
     function updateFolderState(folderPath) {
@@ -498,9 +520,17 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
         folderCheckbox.indeterminate = false;
         return;
       }
-      const checkedCount = childCheckboxes.filter((cb) => cb.checked).length;
-      const indeterminateCount = childCheckboxes.filter((cb) => cb.indeterminate)
-        .length;
+      let checkedCount = 0;
+      let indeterminateCount = 0;
+
+      for (const cb of childCheckboxes) {
+        if (cb.checked) {
+          checkedCount++;
+        }
+        if (cb.indeterminate) {
+          indeterminateCount++;
+        }
+      }
 
       if (checkedCount === childCheckboxes.length) {
         folderCheckbox.checked = true;
@@ -526,34 +556,46 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
       }
     }
 
-    // Toggle folder expansion (excluding direct clicks on the checkbox)
-    folderItems.forEach((item) => {
-      item.addEventListener('click', (event) => {
-        const target = event.target;
-        if (
-          target instanceof HTMLInputElement &&
-          target.classList.contains('tree-checkbox')
-        ) {
-          return;
-        }
-        item.classList.toggle('expanded');
-      });
+    function handleCheckboxChange(checkbox) {
+      const path = checkbox.dataset.path;
+      const type = checkbox.dataset.type;
+
+      if (type === 'folder' && path) {
+        setDescendantsChecked(path, checkbox.checked);
+      }
+
+      updateAncestorStates(checkbox);
+      updateSelectionInfo();
+    }
+
+    // Event delegation to avoid accidental selection and reduce listeners
+    treeContainer?.addEventListener('click', (event) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement &&
+        target.classList.contains('tree-checkbox')
+      ) {
+        return;
+      }
+
+      const folderItem =
+        target instanceof HTMLElement
+          ? target.closest('.tree-item.folder')
+          : null;
+
+      if (folderItem && treeContainer.contains(folderItem)) {
+        folderItem.classList.toggle('expanded');
+      }
     });
 
-    // Handle checkbox changes
-    checkboxes.forEach((checkbox) => {
-      checkbox.addEventListener('change', (event) => {
-        event.stopPropagation();
-        const path = checkbox.dataset.path;
-        const type = checkbox.dataset.type;
-
-        if (type === 'folder' && path) {
-          setDescendantsChecked(path, checkbox.checked);
-        }
-
-        updateAncestorStates(checkbox);
-        updateSelectionInfo();
-      });
+    treeContainer?.addEventListener('change', (event) => {
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement &&
+        target.classList.contains('tree-checkbox')
+      ) {
+        handleCheckboxChange(target);
+      }
     });
 
     // Select all
@@ -596,49 +638,70 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
       folderItems.forEach((item) => item.classList.remove('expanded'));
     });
 
-    // Search functionality
-    searchInput?.addEventListener('input', (event) => {
-      const query = event.target.value.toLowerCase().trim();
+    function debounce(fn, delay) {
+      let handle;
+      return (...args) => {
+        clearTimeout(handle);
+        handle = window.setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    let searchRaf = 0;
+    const runSearch = debounce((value) => {
+      if (searchRaf) {
+        cancelAnimationFrame(searchRaf);
+      }
+      searchRaf = requestAnimationFrame(() => applySearch(value));
+    }, 120);
+
+    function applySearch(rawValue) {
+      const query = rawValue.toLowerCase().trim();
 
       if (!query) {
-        // Show all items
-        document.querySelectorAll('.tree-item').forEach((item) => {
-          item.classList.remove('hidden');
-        });
-        document.querySelectorAll('.tree-children').forEach((container) => {
-          container.classList.remove('hidden');
-        });
+        treeItems.forEach((item) => item.classList.remove('hidden'));
+        treeContainers.forEach((container) =>
+          container.classList.remove('hidden')
+        );
         return;
       }
 
-      // Hide all first
-      document.querySelectorAll('.tree-item').forEach((item) => {
-        item.classList.add('hidden');
-      });
-      document.querySelectorAll('.tree-children').forEach((container) => {
-        container.classList.add('hidden');
-      });
+      const visibleItems = new Set();
+      const visibleContainers = new Set();
 
-      // Show matching items and their parents
-      document.querySelectorAll('.tree-item').forEach((item) => {
-        const path = (item.dataset.path || '').toLowerCase();
-        if (path.includes(query)) {
-          item.classList.remove('hidden');
-          // Show all parent containers
-          let parent = item.parentElement;
+      for (const entry of searchIndex) {
+        if (entry.pathLower.includes(query)) {
+          visibleItems.add(entry.element);
+
+          let parent = entry.element.parentElement;
           while (parent && parent !== treeContainer) {
-            parent.classList.remove('hidden');
-            if (
-              parent.previousElementSibling &&
-              parent.previousElementSibling.classList.contains('tree-item')
-            ) {
-              parent.previousElementSibling.classList.remove('hidden');
-              parent.previousElementSibling.classList.add('expanded');
+            if (parent.classList.contains('tree-children')) {
+              visibleContainers.add(parent);
+              const parentItem = parent.previousElementSibling;
+              if (
+                parentItem &&
+                parentItem.classList.contains('tree-item')
+              ) {
+                visibleItems.add(parentItem);
+                parentItem.classList.add('expanded');
+              }
             }
             parent = parent.parentElement;
           }
         }
+      }
+
+      treeItems.forEach((item) => {
+        item.classList.toggle('hidden', !visibleItems.has(item));
       });
+      treeContainers.forEach((container) => {
+        container.classList.toggle('hidden', !visibleContainers.has(container));
+      });
+    }
+
+    // Search functionality (debounced to stay responsive on large trees)
+    searchInput?.addEventListener('input', (event) => {
+      const value = event.target.value || '';
+      runSearch(value);
     });
 
     // Cancel button

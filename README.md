@@ -2,6 +2,9 @@
 
 A VS Code/Cursor extension that exports selected folders and files from your workspace as well-structured markdown, perfect for feeding into LLMs.
 
+VSCode store link:
+soon
+
 ## Features
 
 - **One-click export**: Click the "Llmify" button in the status bar to open the file picker
@@ -87,10 +90,6 @@ npm run compile
 ```bash
 npm run vscode:prepublish
 ```
-
-## Author
-
-**Amirreza Badpa**
 
 ## License
 

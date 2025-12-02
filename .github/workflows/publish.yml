@@ -41,6 +41,10 @@ jobs:
           console.log('Bumped version:', newVersion);
           EOF
 
+      - name: Install vsce and ovsx
+        run: |
+          npm install -g @vscode/vsce ovsx
+
       - name: Publish to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}

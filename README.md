@@ -4,6 +4,8 @@ A VS Code/Cursor extension that exports selected folders and files from your wor
 
 VSCode store link:
 https://marketplace.visualstudio.com/items?itemName=AmirrezaBadpa.llmify
+OpenVSX:
+https://open-vsx.org/extension/AmirrezaBadpa/llmify
 
 ## Features
 

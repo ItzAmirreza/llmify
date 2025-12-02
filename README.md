@@ -3,7 +3,7 @@
 A VS Code/Cursor extension that exports selected folders and files from your workspace as well-structured markdown, perfect for feeding into LLMs.
 
 VSCode store link:
-soon
+https://marketplace.visualstudio.com/items?itemName=AmirrezaBadpa.llmify
 
 ## Features
 

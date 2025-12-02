@@ -1,9 +1,13 @@
-name: Auto publish VS Code extension to both marketplaces
+name: Publish extension to VS Code Marketplace and OpenVSX
 
 on:
   push:
     branches:
-      - main
+      - main # change if your default branch is different
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   publish:
@@ -21,35 +25,49 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build extension
-        run: npm run compile
-
-      # Auto-bump PATCH version so each publish is unique
-      - name: Auto-bump patch version in package.json
+      # 1) Bump PATCH version in package.json so each run is unique
+      - name: Bump extension version
         run: |
           node - << 'EOF'
           const fs = require('fs');
           const path = 'package.json';
           const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
 
-          const [maj, min, patch] = pkg.version.split('.').map(Number);
-          const newVersion = [maj, min, (patch || 0) + 1].join('.');
+          const oldVersion = pkg.version;
+          console.log('Current version:', oldVersion);
+
+          const parts = String(oldVersion).trim().split('.');
+          if (parts.length !== 3 || parts.some(p => Number.isNaN(Number(p)))) {
+            throw new Error('Unexpected version format: ' + oldVersion);
+          }
+
+          const [maj, min, patch] = parts.map(Number);
+          const newVersion = [maj, min, patch + 1].join('.');
 
           pkg.version = newVersion;
           fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
 
-          console.log('Bumped version:', newVersion);
+          console.log('New version:', newVersion);
           EOF
 
-      - name: Install vsce and ovsx
-        run: |
-          npm install -g @vscode/vsce ovsx
+      - name: Show updated package.json
+        run: cat package.json
 
+      # 2) Build once using your prepublish script
+      - name: Build extension (vscode:prepublish)
+        run: npm run vscode:prepublish
+
+      # 3) Install CLIs
+      - name: Install vsce and ovsx
+        run: npm install -g @vscode/vsce ovsx
+
+      # 4) Publish to VS Code Marketplace
       - name: Publish to VS Code Marketplace
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
         run: vsce publish -p "$VSCE_PAT"
 
+      # 5) Publish to Open VSX (namespace: itzamirreza)
       - name: Publish to Open VSX
         env:
           OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}

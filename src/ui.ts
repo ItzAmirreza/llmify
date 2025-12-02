@@ -410,8 +410,18 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
     const searchInput = document.getElementById('searchInput');
     const selectionInfo = document.getElementById('selectionInfo');
     const exportBtn = document.getElementById('exportBtn');
-    const checkboxes = Array.from(document.querySelectorAll('.tree-checkbox'));
-    const folderItems = Array.from(document.querySelectorAll('.tree-item.folder'));
+    const checkboxes = Array.from(
+      document.querySelectorAll('.tree-checkbox')
+    );
+    const folderItems = Array.from(
+      document.querySelectorAll('.tree-item.folder')
+    );
+    const checkboxByPath = new Map();
+    checkboxes.forEach((cb) => {
+      if (cb.dataset.path) {
+        checkboxByPath.set(cb.dataset.path, cb);
+      }
+    });
 
     function updateSelectionInfo() {
       const selectedFiles = document.querySelectorAll(
@@ -423,19 +433,97 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
       exportBtn.disabled = fileCount === 0;
     }
 
-    function selectChildrenOf(folderPath, select) {
-      const childrenContainer = document.querySelector(
-        '.tree-children[data-parent="' + folderPath + '"]'
+    function findChildrenContainer(folderPath) {
+      const allContainers = Array.from(
+        document.querySelectorAll('.tree-children')
       );
-      if (!childrenContainer) {
-        return;
-      }
+      return allContainers.find((container) => container.dataset.parent === folderPath);
+    }
 
-      const childCheckboxes = childrenContainer.querySelectorAll('.tree-checkbox');
-      childCheckboxes.forEach((cb) => {
+    function getDescendantCheckboxes(folderPath) {
+      const result = [];
+      const stack = [folderPath];
+      while (stack.length > 0) {
+        const current = stack.pop();
+        const container = findChildrenContainer(current);
+        if (!container) {
+          continue;
+        }
+        const childCheckboxes = Array.from(
+          container.querySelectorAll('.tree-checkbox')
+        );
+        result.push(...childCheckboxes);
+        const childFolderCheckboxes = Array.from(
+          container.querySelectorAll('.tree-checkbox[data-type="folder"]')
+        );
+        childFolderCheckboxes.forEach((childCb) => {
+          if (childCb.dataset.path) {
+            stack.push(childCb.dataset.path);
+          }
+        });
+      }
+      return result;
+    }
+
+    function setDescendantsChecked(folderPath, select) {
+      const descendantCheckboxes = getDescendantCheckboxes(folderPath);
+      descendantCheckboxes.forEach((cb) => {
         cb.checked = select;
         cb.indeterminate = false;
       });
+    }
+
+    function findParentPath(checkbox) {
+      let el = checkbox.parentElement;
+      while (el && !el.classList.contains('tree-children')) {
+        el = el.parentElement;
+      }
+      return el?.dataset.parent;
+    }
+
+    function updateFolderState(folderPath) {
+      const folderCheckbox = checkboxByPath.get(folderPath);
+      if (!folderCheckbox) {
+        return;
+      }
+      const container = findChildrenContainer(folderPath);
+      if (!container) {
+        folderCheckbox.indeterminate = false;
+        return;
+      }
+      const childCheckboxes = Array.from(
+        container.querySelectorAll('.tree-checkbox')
+      );
+      if (childCheckboxes.length === 0) {
+        folderCheckbox.indeterminate = false;
+        return;
+      }
+      const checkedCount = childCheckboxes.filter((cb) => cb.checked).length;
+      const indeterminateCount = childCheckboxes.filter((cb) => cb.indeterminate)
+        .length;
+
+      if (checkedCount === childCheckboxes.length) {
+        folderCheckbox.checked = true;
+        folderCheckbox.indeterminate = false;
+      } else if (checkedCount === 0 && indeterminateCount === 0) {
+        folderCheckbox.checked = false;
+        folderCheckbox.indeterminate = false;
+      } else {
+        folderCheckbox.checked = false;
+        folderCheckbox.indeterminate = true;
+      }
+    }
+
+    function updateAncestorStates(startCheckbox) {
+      let parentPath = findParentPath(startCheckbox);
+      while (parentPath) {
+        updateFolderState(parentPath);
+        const parentCheckbox = checkboxByPath.get(parentPath);
+        if (!parentCheckbox) {
+          break;
+        }
+        parentPath = findParentPath(parentCheckbox);
+      }
     }
 
     // Toggle folder expansion (excluding direct clicks on the checkbox)
@@ -460,9 +548,10 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
         const type = checkbox.dataset.type;
 
         if (type === 'folder' && path) {
-          selectChildrenOf(path, checkbox.checked);
+          setDescendantsChecked(path, checkbox.checked);
         }
 
+        updateAncestorStates(checkbox);
         updateSelectionInfo();
       });
     });
@@ -473,6 +562,12 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
         cb.checked = true;
         cb.indeterminate = false;
       });
+      folderItems.forEach((item) => {
+        const folderPath = item.getAttribute('data-path');
+        if (folderPath) {
+          updateFolderState(folderPath);
+        }
+      });
       updateSelectionInfo();
     });
 
@@ -481,6 +576,12 @@ function getWebviewContent(webview: vscode.Webview, tree: TreeNode[]): string {
       checkboxes.forEach((cb) => {
         cb.checked = false;
         cb.indeterminate = false;
+      });
+      folderItems.forEach((item) => {
+        const folderPath = item.getAttribute('data-path');
+        if (folderPath) {
+          updateFolderState(folderPath);
+        }
       });
       updateSelectionInfo();
     });
